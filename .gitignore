@@ -1,0 +1,21 @@
+# Entornos virtuales
+venv/
+env/
+ENV/
+
+# Archivos compilados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Variables de entorno (¡NUNCA SUBIR EL .env!)
+.env
+
+# Base de datos local (por si en algún momento usas SQLite de prueba)
+*.db
+*.sqlite3
+
+# Logs e IDEs
+*.log
+.vscode/
+.idea/
