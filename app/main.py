@@ -318,3 +318,73 @@ def create_stock_movement(
     db.commit()
     db.refresh(db_movement)
     return db_movement
+
+@app.post("/sales/", response_model=schemas.SaleResponse)
+def create_sale(
+    sale_data: schemas.SaleCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    try:
+        # 1. Creamos la cabecera de la venta
+        db_sale = models.Sale(
+            tenant_id=current_user.tenant_id,
+            branch_id=sale_data.branch_id,
+            user_id=current_user.id,
+            payment_method=sale_data.payment_method,
+            total_amount=0 # Lo calcularemos sumando los items
+        )
+        db.add(db_sale)
+        db.flush() # flush() nos da el ID de la venta sin cerrar la transacción todavía
+
+        total_venta = 0
+
+        # 2. Procesamos cada producto del ticket
+        for item in sale_data.items:
+            # Buscamos el producto en la base para tener el precio real
+            product = db.query(models.Product).filter(
+                models.Product.id == item.product_id,
+                models.Product.tenant_id == current_user.tenant_id
+            ).first()
+
+            if not product:
+                raise HTTPException(status_code=404, detail=f"Producto {item.product_id} no encontrado")
+
+            subtotal = product.price * item.quantity
+            total_venta += subtotal
+
+            # Guardamos el detalle de la venta
+            db_item = models.SaleItem(
+                sale_id=db_sale.id,
+                product_id=product.id,
+                quantity=item.quantity,
+                unit_price=product.price,
+                subtotal=subtotal
+            )
+            db.add(db_item)
+
+            # 3. ¡IMPORTANTE! Descontamos el stock automáticamente
+            # Registramos un movimiento de salida (negativo)
+            db_stock_move = models.StockMovement(
+                tenant_id=current_user.tenant_id,
+                product_id=product.id,
+                branch_id=sale_data.branch_id,
+                user_id=current_user.id,
+                quantity=-item.quantity, # Restamos la cantidad vendida
+                movement_type="OUT_SALE",
+                notes=f"Venta ID: {db_sale.id}"
+            )
+            db.add(db_stock_move)
+
+        # 4. Actualizamos el total final de la venta
+        db_sale.total_amount = total_venta
+        
+        db.commit() # Si llegamos acá, se guarda TODO junto
+        db.refresh(db_sale)
+        return db_sale
+
+    except Exception as e:
+        db.rollback() # Si hubo CUALQUIER error, se deshacen los cambios
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Error al procesar la venta: {str(e)}")

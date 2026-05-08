@@ -135,3 +135,32 @@ class StockMovementResponse(BaseModel):
 class ProductStockResponse(BaseModel):
     product_id: UUID
     total_stock: int
+
+# --- SCHEMAS PARA VENTAS (SALES) ---
+
+class SaleItemCreate(BaseModel):
+    product_id: UUID
+    quantity: int
+
+class SaleCreate(BaseModel):
+    branch_id: UUID
+    payment_method: str # Ej: 'CASH', 'DEBIT', 'CREDIT', 'TRANSFER'
+    items: list[SaleItemCreate]
+
+class SaleItemResponse(BaseModel):
+    product_id: UUID
+    quantity: int
+    unit_price: float
+    subtotal: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+class SaleResponse(BaseModel):
+    id: UUID
+    branch_id: UUID
+    total_amount: float
+    payment_method: str
+    created_at: datetime
+    items: list[SaleItemResponse]
+
+    model_config = ConfigDict(from_attributes=True)
