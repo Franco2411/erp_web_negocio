@@ -144,8 +144,7 @@ def create_category(
     # Armamos la categoría inyectando el tenant_id del usuario logueado
     db_category = models.Category(
         tenant_id=current_user.tenant_id,
-        name=category.name,
-        description=category.description
+        name=category.name
     )
     db.add(db_category)
     db.commit()
@@ -161,8 +160,8 @@ def get_categories(
 ):
     # Solo devolvemos las categorías de SU negocio
     categories = db.query(models.Category).filter(
-        models.Category.tenant_id == current_user.tenant_id,
-        models.Category.is_active == True # Filtramos las dadas de baja
+        models.Category.tenant_id == current_user.tenant_id
+        #models.Category.is_active == True # Filtramos las dadas de baja
     ).offset(skip).limit(limit).all()
     return categories
 
@@ -185,16 +184,30 @@ def create_product(
         if not category:
             raise HTTPException(status_code=400, detail="Categoría no encontrada o no válida para este negocio")
 
+    # PASO 1: Ensamblamos el producto base (El chasis)
     db_product = models.Product(
-        tenant_id=current_user.tenant_id,
-        category_id=product.category_id,
         name=product.name,
-        barcode=product.barcode,
-        description=product.description,
-        price=product.price,
-        min_stock_alert=product.min_stock_alert
+        category_id=product.category_id,
+        tenant_id=current_user.tenant_id
     )
     db.add(db_product)
+    
+    # Hacemos un "flush" en lugar de "commit". 
+    # Esto le dice a la BD: "Anotalo, dame el ID generado, pero todavía no lo guardes definitivo".
+    db.flush() 
+
+    # PASO 2: Ensamblamos la variante principal enganchada al ID del chasis
+    db_variant = models.ProductVariant(
+        product_id=db_product.id,
+        sku=product.sku,  # Acá usamos el ID que acabamos de generar
+        barcode=product.sku,       # (O cambiá 'barcode' por 'sku' si en models.py se llama sku)
+        price=product.price,
+        cost=product.cost,
+        attributes={}
+    )
+    db.add(db_variant)
+
+    # PASO 3: Confirmamos toda la línea de ensamblaje junta
     db.commit()
     db.refresh(db_product)
     return db_product

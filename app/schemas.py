@@ -57,14 +57,11 @@ class TokenData(BaseModel):
 
 class CategoryCreate(BaseModel):
     name: str
-    description: Optional[str] = None
 
 class CategoryResponse(BaseModel):
     id: UUID
     tenant_id: UUID
     name: str
-    description: Optional[str]
-    is_active: bool
 
     model_config = ConfigDict(from_attributes=True)
 
