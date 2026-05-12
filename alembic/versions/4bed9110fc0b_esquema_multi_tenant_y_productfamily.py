@@ -1,8 +1,8 @@
-"""Creacion inicial de la base de datos completa
+"""Esquema Multi-Tenant y ProductFamily
 
-Revision ID: fe7507a9b3d8
+Revision ID: 4bed9110fc0b
 Revises: 
-Create Date: 2026-05-06 18:25:39.764641
+Create Date: 2026-05-12 20:10:03.280701
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'fe7507a9b3d8'
+revision: str = '4bed9110fc0b'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -36,6 +36,7 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_branches_tenant_id'), 'branches', ['tenant_id'], unique=False)
     op.create_table('categories',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('tenant_id', sa.UUID(), nullable=False),
@@ -44,6 +45,20 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_categories_tenant_id'), 'categories', ['tenant_id'], unique=False)
+    op.create_table('suppliers',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('tenant_id', sa.UUID(), nullable=False),
+    sa.Column('name', sa.String(length=255), nullable=False),
+    sa.Column('cuit', sa.String(length=50), nullable=True),
+    sa.Column('phone', sa.String(length=50), nullable=True),
+    sa.Column('email', sa.String(length=255), nullable=True),
+    sa.Column('contact_name', sa.String(length=255), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_suppliers_tenant_id'), 'suppliers', ['tenant_id'], unique=False)
     op.create_table('users',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('tenant_id', sa.UUID(), nullable=False),
@@ -54,18 +69,22 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_table('products',
+    op.create_index(op.f('ix_users_tenant_id'), 'users', ['tenant_id'], unique=False)
+    op.create_table('product_families',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('tenant_id', sa.UUID(), nullable=False),
     sa.Column('category_id', sa.UUID(), nullable=True),
+    sa.Column('supplier_id', sa.UUID(), nullable=True),
     sa.Column('name', sa.String(length=255), nullable=False),
     sa.Column('description', sa.String(), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.ForeignKeyConstraint(['category_id'], ['categories.id'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['supplier_id'], ['suppliers.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_product_families_tenant_id'), 'product_families', ['tenant_id'], unique=False)
     op.create_table('sales',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('tenant_id', sa.UUID(), nullable=False),
@@ -80,21 +99,26 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_sales_tenant_id'), 'sales', ['tenant_id'], unique=False)
     op.create_table('product_variants',
     sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('product_id', sa.UUID(), nullable=False),
+    sa.Column('tenant_id', sa.UUID(), nullable=False),
+    sa.Column('product_family_id', sa.UUID(), nullable=False),
     sa.Column('sku', sa.String(length=100), nullable=True),
     sa.Column('barcode', sa.String(length=100), nullable=True),
     sa.Column('price', sa.Numeric(precision=12, scale=2), nullable=False),
     sa.Column('cost', sa.Numeric(precision=12, scale=2), nullable=True),
     sa.Column('attributes', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
-    sa.ForeignKeyConstraint(['product_id'], ['products.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['product_family_id'], ['product_families.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_product_variants_barcode'), 'product_variants', ['barcode'], unique=False)
+    op.create_index(op.f('ix_product_variants_tenant_id'), 'product_variants', ['tenant_id'], unique=False)
     op.create_table('inventories',
     sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('tenant_id', sa.UUID(), nullable=False),
     sa.Column('branch_id', sa.UUID(), nullable=False),
     sa.Column('product_variant_id', sa.UUID(), nullable=False),
     sa.Column('quantity', sa.Numeric(precision=12, scale=2), nullable=False),
@@ -102,10 +126,13 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.ForeignKeyConstraint(['branch_id'], ['branches.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['product_variant_id'], ['product_variants.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_inventories_tenant_id'), 'inventories', ['tenant_id'], unique=False)
     op.create_table('sale_items',
     sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('tenant_id', sa.UUID(), nullable=False),
     sa.Column('sale_id', sa.UUID(), nullable=False),
     sa.Column('product_variant_id', sa.UUID(), nullable=False),
     sa.Column('quantity', sa.Numeric(precision=12, scale=2), nullable=False),
@@ -114,33 +141,49 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.ForeignKeyConstraint(['product_variant_id'], ['product_variants.id'], ondelete='RESTRICT'),
     sa.ForeignKeyConstraint(['sale_id'], ['sales.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_sale_items_tenant_id'), 'sale_items', ['tenant_id'], unique=False)
     op.create_table('stock_movements',
     sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('tenant_id', sa.UUID(), nullable=False),
     sa.Column('inventory_id', sa.UUID(), nullable=False),
     sa.Column('movement_type', sa.Enum('SALE', 'RESTOCK', 'ADJUSTMENT', 'RETURN', name='movementtype'), nullable=False),
     sa.Column('quantity_change', sa.Numeric(precision=12, scale=2), nullable=False),
     sa.Column('reference_id', sa.UUID(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.ForeignKeyConstraint(['inventory_id'], ['inventories.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_stock_movements_tenant_id'), 'stock_movements', ['tenant_id'], unique=False)
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index(op.f('ix_stock_movements_tenant_id'), table_name='stock_movements')
     op.drop_table('stock_movements')
+    op.drop_index(op.f('ix_sale_items_tenant_id'), table_name='sale_items')
     op.drop_table('sale_items')
+    op.drop_index(op.f('ix_inventories_tenant_id'), table_name='inventories')
     op.drop_table('inventories')
+    op.drop_index(op.f('ix_product_variants_tenant_id'), table_name='product_variants')
     op.drop_index(op.f('ix_product_variants_barcode'), table_name='product_variants')
     op.drop_table('product_variants')
+    op.drop_index(op.f('ix_sales_tenant_id'), table_name='sales')
     op.drop_table('sales')
-    op.drop_table('products')
+    op.drop_index(op.f('ix_product_families_tenant_id'), table_name='product_families')
+    op.drop_table('product_families')
+    op.drop_index(op.f('ix_users_tenant_id'), table_name='users')
     op.drop_table('users')
+    op.drop_index(op.f('ix_suppliers_tenant_id'), table_name='suppliers')
+    op.drop_table('suppliers')
+    op.drop_index(op.f('ix_categories_tenant_id'), table_name='categories')
     op.drop_table('categories')
+    op.drop_index(op.f('ix_branches_tenant_id'), table_name='branches')
     op.drop_table('branches')
     op.drop_table('tenants')
     # ### end Alembic commands ###
