@@ -65,6 +65,25 @@ class CategoryResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+# --- SCHEMAS PARA PROVEEDORES ---
+class SupplierBase(BaseModel):
+    name: str
+    cuit: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    contact_name: Optional[str] = None
+
+class SupplierCreate(SupplierBase):
+    pass # No necesitamos nada extra para crearlo, el tenant_id lo pone el backend
+
+class SupplierResponse(SupplierBase):
+    id: UUID
+    tenant_id: UUID
+    created_at: datetime
+
+    
+    model_config = ConfigDict(from_attributes=True)
+
 # --- SCHEMAS PARA PRODUCTOS ---
 
 class ProductCreate(BaseModel):
@@ -93,14 +112,11 @@ class ProductResponse(BaseModel):
 
 class BranchCreate(BaseModel):
     name: str
-    address: Optional[str] = None
 
 class BranchResponse(BaseModel):
     id: UUID
     tenant_id: UUID
     name: str
-    address: Optional[str]
-    is_active: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

@@ -166,6 +166,43 @@ def get_categories(
     return categories
 
 # ==========================================
+# ENDPOINTS DE PROVEEDORES
+# ==========================================
+
+@app.post("/suppliers/", response_model=schemas.SupplierResponse)
+def create_supplier(
+    supplier: schemas.SupplierCreate, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- El pase VIP
+):
+    # Armamos la categoría inyectando el tenant_id del usuario logueado
+    db_supplier = models.Supplier(
+        tenant_id=current_user.tenant_id,
+        name=supplier.name,
+        cuit=supplier.cuit,
+        phone=supplier.phone,
+        email=supplier.email,
+        contact_name=supplier.contact_name
+    )
+    db.add(db_supplier)
+    db.commit()
+    db.refresh(db_supplier)
+    return db_supplier
+
+@app.get("/suppliers/", response_model=list[schemas.SupplierResponse])
+def get_suppliers(
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    
+    suppliers = db.query(models.Supplier).filter(
+        models.Supplier.tenant_id == current_user.tenant_id
+    ).offset(skip).limit(limit).all()
+    return suppliers
+
+# ==========================================
 # ENDPOINTS DE PRODUCTOS
 # ==========================================
 
@@ -269,8 +306,7 @@ def create_branch(
 ):
     db_branch = models.Branch(
         tenant_id=current_user.tenant_id,
-        name=branch.name,
-        address=branch.address
+        name=branch.name
     )
     db.add(db_branch)
     db.commit()
@@ -285,8 +321,7 @@ def get_branches(
     current_user: models.User = Depends(get_current_user)
 ):
     branches = db.query(models.Branch).filter(
-        models.Branch.tenant_id == current_user.tenant_id,
-        models.Branch.is_active == True
+        models.Branch.tenant_id == current_user.tenant_id
     ).offset(skip).limit(limit).all()
     return branches
 
