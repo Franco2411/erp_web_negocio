@@ -206,91 +206,96 @@ def get_suppliers(
 # ENDPOINTS DE PRODUCTOS
 # ==========================================
 
-@app.post("/products/", response_model=schemas.ProductResponse)
-def create_product(
-    product: schemas.ProductCreate, 
+@app.post("/products/full-load", response_model=schemas.ProductFamilyResponse)
+def load_full_product(
+    payload: schemas.FullProductPayload, 
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Validamos que, si mandó una categoría, esa categoría le pertenezca a su negocio
-    if product.category_id:
-        category = db.query(models.Category).filter(
-            models.Category.id == product.category_id,
-            models.Category.tenant_id == current_user.tenant_id
-        ).first()
-        if not category:
-            raise HTTPException(status_code=400, detail="Categoría no encontrada o no válida para este negocio")
-
-    # PASO 1: Ensamblamos el producto base (El chasis)
-    db_product = models.Product(
-        name=product.name,
-        category_id=product.category_id,
-        tenant_id=current_user.tenant_id
-    )
-    db.add(db_product)
+    # --- PASO 1: RESOLVER LA FAMILIA ---
     
-    # Hacemos un "flush" en lugar de "commit". 
-    # Esto le dice a la BD: "Anotalo, dame el ID generado, pero todavía no lo guardes definitivo".
-    db.flush() 
+    # Caso A: El frontend me mandó un ID existente
+    if payload.existing_family_id:
+        family = db.query(models.ProductFamily).filter(
+            models.ProductFamily.id == payload.existing_family_id,
+            models.ProductFamily.tenant_id == current_user.tenant_id
+        ).first()
+        
+        if not family:
+            raise HTTPException(status_code=404, detail="La familia seleccionada no existe")
 
-    # PASO 2: Ensamblamos la variante principal enganchada al ID del chasis
-    db_variant = models.ProductVariant(
-        product_id=db_product.id,
-        sku=product.sku,  # Acá usamos el ID que acabamos de generar
-        barcode=product.sku,       # (O cambiá 'barcode' por 'sku' si en models.py se llama sku)
-        price=product.price,
-        cost=product.cost,
-        attributes={}
-    )
-    db.add(db_variant)
+    # Caso B: El frontend me mandó los datos para crear una nueva
+    elif payload.new_family_data:
+        family = models.ProductFamily(
+            **payload.new_family_data.dict(),
+            tenant_id=current_user.tenant_id
+        )
+        db.add(family)
+        db.flush() # flush() le asigna un ID a la familia sin cerrar la transacción todavía
+        
+    # Caso C: El frontend mandó el JSON vacío o mal armado
+    else:
+        raise HTTPException(status_code=400, detail="Debes enviar un ID existente o los datos para crear una familia nueva")
 
-    # PASO 3: Confirmamos toda la línea de ensamblaje junta
-    db.commit()
-    db.refresh(db_product)
-    return db_product
+    # --- PASO 2: INSERTAR LAS VARIANTES ---
+    
+    # Ya sea que la encontramos o la creamos, acá 'family.id' ya tiene el UUID correcto.
+    for var_data in payload.variants:
+        new_variant = models.ProductVariant(
+            **var_data.dict(),
+            product_family_id=family.id, # Enganchamos la variante a la familia
+            tenant_id=current_user.tenant_id
+        )
+        db.add(new_variant)
 
-@app.get("/products/", response_model=list[schemas.ProductResponse])
+    # --- PASO 3: GUARDAR TODO ---
+    db.commit() # Si algo falla, no se guarda ni la familia ni las variantes (Transacción segura)
+    
+    return {"message": "Carga exitosa", "family_id": family.id}
+
+@app.get("/product-families/", response_model=list[schemas.ProductFamilyResponse])
 def get_products(
     skip: int = 0, 
     limit: int = 100, 
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # La consulta del catálogo filtrada por el tenant_id
-    products = db.query(models.Product).filter(
-        models.Product.tenant_id == current_user.tenant_id,
-        models.Product.is_active == True
+    # La consulta del catálogo filtrada por el tenant_id, ahora apuntando a ProductFamily
+    products = db.query(models.ProductFamily).filter(
+        models.ProductFamily.tenant_id == current_user.tenant_id,
+        models.ProductFamily.is_active == True
     ).offset(skip).limit(limit).all()
+    
     return products
 
-@app.get("/products/{product_id}/stock", response_model=schemas.ProductStockResponse)
+@app.get("/product-variants/{variant_id}/stock", response_model=schemas.ProductStockResponse)
 def get_product_stock(
-    product_id: str,
+    variant_id: str,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # 1. Validamos que el producto exista y sea del negocio de este usuario
-    product = db.query(models.Product).filter(
-        models.Product.id == product_id,
-        models.Product.tenant_id == current_user.tenant_id
+    # 1. Validamos que la VARIANTE exista y sea de este tenant
+    variant = db.query(models.ProductVariant).filter(
+        models.ProductVariant.id == variant_id,
+        models.ProductVariant.tenant_id == current_user.tenant_id
     ).first()
     
-    if not product:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    if not variant:
+        raise HTTPException(status_code=404, detail="Variante de producto no encontrada")
 
-    # 2. Le pedimos a PostgreSQL que sume todas las cantidades de ese producto
-    # Usamos func.sum() que es infinitamente más rápido que traer todos los registros y sumarlos con Python
-    total_stock = db.query(func.sum(models.StockMovement.quantity)).filter(
-        models.StockMovement.product_id == product_id,
-        models.StockMovement.tenant_id == current_user.tenant_id
-    ).scalar() # .scalar() extrae el número crudo de la respuesta de la base de datos
+    # 2. Le pedimos a PostgreSQL que sume el stock directamente desde la tabla Inventory.
+    # Si tenés múltiples sucursales (Branches), esto suma el total global de la variante.
+    total_stock = db.query(func.sum(models.Inventory.quantity)).filter(
+        models.Inventory.product_variant_id == variant_id,
+        models.Inventory.tenant_id == current_user.tenant_id
+    ).scalar() 
 
-    # Si el producto es nuevo y no tiene movimientos, func.sum() devuelve None. Lo pasamos a 0.
+    # Si la variante es nueva y no tiene entrada en Inventory, func.sum() devuelve None.
     if total_stock is None:
         total_stock = 0
 
     return {
-        "product_id": product_id,
+        "product_variant_id": variant_id,
         "total_stock": total_stock
     }
 

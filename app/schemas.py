@@ -3,6 +3,7 @@ from typing import Optional
 from uuid import UUID
 from datetime import datetime
 from app.models import UserRole
+from typing import List, Optional
 
 # --- SCHEMAS PARA TENANT (NEGOCIO) ---
 
@@ -86,27 +87,67 @@ class SupplierResponse(SupplierBase):
 
 # --- SCHEMAS PARA PRODUCTOS ---
 
-class ProductCreate(BaseModel):
+# Esquema para los datos de la Familia
+class ProductFamilyCreate(BaseModel):
     name: str
-    barcode: Optional[str] = None
+    category_id: UUID
+    supplier_id: Optional[UUID] = None
     description: Optional[str] = None
-    category_id: Optional[UUID] = None
-    price: float
-    min_stock_alert: int = 5 # Valor por defecto
+    is_active: bool = True
 
-class ProductResponse(BaseModel):
-    id: UUID
-    tenant_id: UUID
-    category_id: Optional[UUID]
-    name: str
-    barcode: Optional[str]
-    description: Optional[str]
+# Esquema para las Variantes
+class ProductVariantCreate(BaseModel):
+    sku: str
+    barcode: Optional[str] = None
     price: float
-    min_stock_alert: int
-    is_active: bool
+    cost: float
+    attributes: dict = {}
+
+# EL SUPER ESQUEMA (Lo que manda Vue.js)
+class FullProductPayload(BaseModel):
+    # O me mandás el ID que el usuario seleccionó en el buscador...
+    existing_family_id: Optional[UUID] = None
+    
+    # ... O me mandás los textos para que yo cree la familia.
+    new_family_data: Optional[ProductFamilyCreate] = None
+    
+    # Las variantes siempre van.
+    variants: List[ProductVariantCreate]
+
+# 1. El esquema hijo (La variante individual)
+class ProductVariantResponse(BaseModel):
+    id: UUID
+    product_family_id: UUID
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
+    price: float
+    cost: float
+    attributes: dict
     created_at: datetime
 
+    # Esto le dice a Pydantic que sepa leer objetos directos de SQLAlchemy
     model_config = ConfigDict(from_attributes=True)
+
+
+# 2. El esquema padre (La familia completa con sus variantes anidadas)
+class ProductFamilyResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    category_id: Optional[UUID] = None
+    supplier_id: Optional[UUID] = None
+    name: str
+    description: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    
+    # ¡Acá está la magia! Le decimos que devuelva la lista de variantes adentro de la familia
+    variants: List[ProductVariantResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ProductStockResponse(BaseModel):
+    product_variant_id: UUID
+    total_stock: float
 
 # --- SCHEMAS PARA SUCURSALES (BRANCHES) ---
 

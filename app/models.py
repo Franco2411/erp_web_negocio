@@ -81,6 +81,8 @@ class ProductFamily(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    variants = relationship("ProductVariant", backref="family", cascade="all, delete-orphan")
+
 class ProductVariant(Base):
     __tablename__ = "product_variants"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
