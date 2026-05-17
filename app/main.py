@@ -250,8 +250,8 @@ def load_full_product(
 
     # --- PASO 3: GUARDAR TODO ---
     db.commit() # Si algo falla, no se guarda ni la familia ni las variantes (Transacción segura)
-    
-    return {"message": "Carga exitosa", "family_id": family.id}
+    db.refresh(family)
+    return family
 
 @app.get("/product-families/", response_model=list[schemas.ProductFamilyResponse])
 def get_products(
